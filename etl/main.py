@@ -12,7 +12,8 @@ from config import (
     PARTICIPATION_FILE,
     STATUS_FILE,
     OUTPUT_DIR,
-    OUTPUT_FILES
+    OUTPUT_FILES,
+    LOGS_DIR
 )
 from utils import setup_logging, ensure_output_dir
 from loaders import (
@@ -43,8 +44,8 @@ def save_dataframe(df, filepath, index=False):
 def run_pipeline():
     """Execute the full ETL pipeline."""
 
-    ensure_output_dir(OUTPUT_DIR)
-    log_file = OUTPUT_DIR / "etl_pipeline.log"
+    ensure_output_dir(LOGS_DIR)
+    log_file = LOGS_DIR / "etl_pipeline.log"
     setup_logging(log_file)
     logger = logging.getLogger(__name__)
 

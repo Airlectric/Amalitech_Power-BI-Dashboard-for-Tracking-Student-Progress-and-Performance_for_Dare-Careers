@@ -1,4 +1,4 @@
-"""Utility functions for ETL pipeline."""
+"""Utility function for ETL pipeline."""
 
 import logging
 import sys

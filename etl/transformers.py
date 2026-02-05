@@ -101,28 +101,55 @@ def transform_participation(participation_df, name_email_map):
 
 
 def create_dim_learner(status_df, attendance_df):
-    """Create learner dimension table."""
+    """Create learner dimension table with derived fields."""
     logger.info("Creating dim_learner")
 
     result = status_df.copy()
     result["email"] = result["email"].str.lower().str.strip()
 
+    # Get learner name from attendance
     name_lookup = attendance_df[["email", "learner_name"]].drop_duplicates(subset=["email"])
     name_map = name_lookup.set_index("email")["learner_name"]
     result["learner_name"] = result["email"].map(name_map)
 
+    # Derive enrollment_date from first attendance
+    attendance_df["attendance_date"] = pd.to_datetime(attendance_df["attendance_date"])
+    first_attendance = attendance_df.groupby("email")["attendance_date"].min()
+    result["enrollment_date"] = result["email"].map(first_attendance)
+
+    # Derive cohort from enrollment month-year
+    result["cohort"] = result["enrollment_date"].dt.strftime("%b-%Y")
+
+    # Track - default to Power BI (single track in current data)
+    # In production, this would come from source data or be configurable
+    result["track"] = "Power BI"
+
+    # Binary flags
     result["is_graduated"] = (result["Graduation Status"] == "Graduate").astype(np.int8)
     result["is_certified"] = (result["Certification Status"] == "Certified").astype(np.int8)
+
+    # Derive current_status based on graduation and certification
+    conditions = [
+        (result["is_graduated"] == 1) & (result["is_certified"] == 1),
+        (result["is_graduated"] == 1) & (result["is_certified"] == 0),
+        (result["is_graduated"] == 0)
+    ]
+    choices = ["Certified Graduate", "Graduate", "In Progress"]
+    result["current_status"] = np.select(conditions, choices, default="Unknown")
+
+    # Surrogate key
     result["learner_id"] = np.arange(1, len(result) + 1)
 
+    # Rename source columns
     result = result.rename(columns={
         "Graduation Status": "graduation_status",
         "Certification Status": "certification_status"
     })
 
     result = result[[
-        "learner_id", "email", "learner_name", "graduation_status",
-        "certification_status", "is_graduated", "is_certified"
+        "learner_id", "email", "learner_name", "cohort", "track",
+        "enrollment_date", "graduation_status", "certification_status",
+        "current_status", "is_graduated", "is_certified"
     ]]
 
     logger.info(f"Created dim_learner with {len(result)} records")

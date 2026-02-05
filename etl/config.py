@@ -7,6 +7,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).parent.parent))
 DATA_DIR = PROJECT_ROOT / "data"
 OUTPUT_DIR = PROJECT_ROOT / "cleaned_data"
+LOGS_DIR = PROJECT_ROOT / "logs"
 
 # Source folder/file names - can be overridden via environment variables
 ZOOM_FOLDER = os.getenv("ZOOM_FOLDER", "Zoom Attendance")
