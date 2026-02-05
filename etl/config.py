@@ -1,17 +1,24 @@
 """Configuration settings for ETL pipeline."""
 
+import os
 from pathlib import Path
 
-# Base paths
-BASE_DIR = Path(r"C:\Users\Daniel\Desktop\Amalitech NSS\power bi project")
-DATA_DIR = BASE_DIR / "data"
-OUTPUT_DIR = BASE_DIR / "cleaned_data"
+# Base paths - relative to project root, with env override option
+PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).parent.parent))
+DATA_DIR = PROJECT_ROOT / "data"
+OUTPUT_DIR = PROJECT_ROOT / "cleaned_data"
 
-# Source paths
-ZOOM_DIR = DATA_DIR / "Zoom Attendance"
-LABS_QUIZZES_FILE = DATA_DIR / "Labs & Quizes" / "Labs & Quizes.xlsx"
-PARTICIPATION_FILE = DATA_DIR / "Participation" / "Participation records.xlsx"
-STATUS_FILE = DATA_DIR / "Status of Learners" / "Status of Participanat.xlsx"
+# Source folder/file names - can be overridden via environment variables
+ZOOM_FOLDER = os.getenv("ZOOM_FOLDER", "Zoom Attendance")
+LABS_FILE = os.getenv("LABS_FILE", "Labs & Quizes/Labs & Quizes.xlsx")
+PARTICIPATION_FILE_NAME = os.getenv("PARTICIPATION_FILE", "Participation/Participation records.xlsx")
+STATUS_FILE_NAME = os.getenv("STATUS_FILE", "Status of Learners/Status of Participanat.xlsx")
+
+# Constructed paths
+ZOOM_DIR = DATA_DIR / ZOOM_FOLDER
+LABS_QUIZZES_FILE = DATA_DIR / LABS_FILE
+PARTICIPATION_FILE = DATA_DIR / PARTICIPATION_FILE_NAME
+STATUS_FILE = DATA_DIR / STATUS_FILE_NAME
 
 # Output files
 OUTPUT_FILES = {
@@ -24,8 +31,4 @@ OUTPUT_FILES = {
 }
 
 # Business rules
-ATTENDANCE_THRESHOLD_MINUTES = 30
-
-# Date settings
-PROGRAM_START_DATE = "2024-08-05"
-PROGRAM_END_DATE = "2024-10-11"
+ATTENDANCE_THRESHOLD_MINUTES = int(os.getenv("ATTENDANCE_THRESHOLD", "30"))

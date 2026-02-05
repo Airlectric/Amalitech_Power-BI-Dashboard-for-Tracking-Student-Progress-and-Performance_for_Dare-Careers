@@ -1,271 +1,187 @@
+"""Data transformation functions for ETL pipeline."""
+
 import logging
 import pandas as pd
 import numpy as np
-from utils import (
-    parse_duration_to_minutes,
-    extract_date_from_filename,
-    extract_week_from_path,
-    normalize_email,
-    normalize_name
-)
-from config import ATTENDANCE_THRESHOLD_MINUTES, PROGRAM_START_DATE, PROGRAM_END_DATE
+from config import ATTENDANCE_THRESHOLD_MINUTES
 
 logger = logging.getLogger(__name__)
+
+
+def parse_duration_vectorized(duration_series):
+    """Vectorized duration parsing - H:MM:SS to minutes."""
+    split = duration_series.str.split(":", expand=True).astype(int)
+    return split[0] * 60 + split[1] + split[2] / 60
+
+
+def extract_date_from_filenames(filename_series):
+    """Vectorized date extraction from filenames."""
+    date_strings = filename_series.str.replace(".csv", "", regex=False)
+    return pd.to_datetime(date_strings, format="%d-%b-%Y")
+
+
+def extract_week_from_paths(path_series):
+    """Vectorized week extraction from paths."""
+    return path_series.str.extract(r"Week (\d+)", expand=False).astype(int)
 
 
 def transform_zoom_attendance(df):
     """Transform raw Zoom attendance data into fact table."""
     logger.info("Transforming Zoom attendance data")
 
-    result = df.copy()
+    result = pd.DataFrame()
 
-    # Normalize email
-    result["email"] = result["Email"].apply(normalize_email)
-
-    # Parse duration to minutes
-    result["duration_minutes"] = result["Duration"].apply(parse_duration_to_minutes)
-
-    # Calculate hours for reporting
+    result["email"] = df["Email"].str.lower().str.strip()
+    result["learner_name"] = df["Name"].str.strip()
+    result["duration_minutes"] = parse_duration_vectorized(df["Duration"])
     result["duration_hours"] = result["duration_minutes"] / 60
+    result["is_attended"] = (result["duration_minutes"] > ATTENDANCE_THRESHOLD_MINUTES).astype(np.int8)
+    result["attendance_date"] = extract_date_from_filenames(df["source_file"])
+    result["week_number"] = extract_week_from_paths(df["source_path"])
+    result["join_time"] = df["Join Time"]
+    result["leave_time"] = df["Leave Time"]
+    result["attendance_id"] = np.arange(1, len(result) + 1)
 
-    # Apply attendance rule (>30 minutes)
-    result["is_attended"] = (result["duration_minutes"] > ATTENDANCE_THRESHOLD_MINUTES).astype(int)
+    result = result[[
+        "attendance_id", "email", "learner_name", "attendance_date",
+        "week_number", "join_time", "leave_time", "duration_minutes",
+        "duration_hours", "is_attended"
+    ]]
 
-    # Extract date from filename
-    result["attendance_date"] = result["source_file"].apply(extract_date_from_filename)
-
-    # Extract week number
-    result["week_number"] = result["source_path"].apply(extract_week_from_path)
-
-    # Create surrogate key
-    result["attendance_id"] = (
-        result["email"] + "_" + result["attendance_date"].dt.strftime("%Y%m%d")
-    )
-
-    # Select and rename final columns
-    fact_attendance = result[[
-        "attendance_id",
-        "email",
-        "Name",
-        "attendance_date",
-        "week_number",
-        "Join Time",
-        "Leave Time",
-        "duration_minutes",
-        "duration_hours",
-        "is_attended"
-    ]].copy()
-
-    fact_attendance.columns = [
-        "attendance_id",
-        "email",
-        "learner_name",
-        "attendance_date",
-        "week_number",
-        "join_time",
-        "leave_time",
-        "duration_minutes",
-        "duration_hours",
-        "is_attended"
-    ]
-
-    logger.info(f"Created fact_attendance with {len(fact_attendance)} records")
-    return fact_attendance
+    logger.info(f"Created fact_attendance with {len(result)} records")
+    return result
 
 
 def transform_assessments(labs_df, quizzes_df):
     """Transform labs and quizzes into unified assessment fact table."""
     logger.info("Transforming assessment data")
 
-    # Unpivot labs
-    labs_melted = labs_df.melt(
-        id_vars=["email"],
-        var_name="week",
-        value_name="score"
-    )
+    labs_melted = labs_df.melt(id_vars=["email"], var_name="week", value_name="score")
     labs_melted["assessment_type"] = "Lab"
 
-    # Unpivot quizzes
-    quizzes_melted = quizzes_df.melt(
-        id_vars=["email"],
-        var_name="week",
-        value_name="score"
-    )
+    quizzes_melted = quizzes_df.melt(id_vars=["email"], var_name="week", value_name="score")
     quizzes_melted["assessment_type"] = "Quiz"
 
-    # Combine
     combined = pd.concat([labs_melted, quizzes_melted], ignore_index=True)
+    combined["email"] = combined["email"].str.lower().str.strip()
+    combined["week_number"] = combined["week"].str.extract(r"(\d+)", expand=False).astype(np.int8)
+    combined["assessment_id"] = np.arange(1, len(combined) + 1)
 
-    # Normalize email
-    combined["email"] = combined["email"].apply(normalize_email)
+    result = combined[["assessment_id", "email", "week_number", "assessment_type", "score"]]
 
-    # Extract week number
-    combined["week_number"] = combined["week"].str.extract(r"(\d+)").astype(int)
-
-    # Create surrogate key
-    combined["assessment_id"] = (
-        combined["email"] + "_" +
-        combined["assessment_type"].str.lower() + "_" +
-        combined["week_number"].astype(str)
-    )
-
-    # Select final columns
-    fact_assessment = combined[[
-        "assessment_id",
-        "email",
-        "week_number",
-        "assessment_type",
-        "score"
-    ]].copy()
-
-    logger.info(f"Created fact_assessment with {len(fact_assessment)} records")
-    return fact_assessment
+    logger.info(f"Created fact_assessment with {len(result)} records")
+    return result
 
 
 def transform_participation(participation_df, name_email_map):
-    """Transform participation records into fact table."""
+    """Transform participation records using vectorized explode."""
     logger.info("Transforming participation data")
 
-    records = []
-    for _, row in participation_df.iterrows():
-        date = row["Date"]
-        participants = [normalize_name(n) for n in row["Participants"].split(",")]
+    df = participation_df.copy()
+    df["participants_list"] = df["Participants"].str.split(",")
 
-        for name in participants:
-            email = name_email_map.get(name)
-            if email:
-                records.append({
-                    "participation_date": date,
-                    "learner_name": name,
-                    "email": email,
-                    "participated": 1
-                })
+    exploded = df.explode("participants_list")
+    exploded["learner_name"] = exploded["participants_list"].str.strip()
 
-    fact_participation = pd.DataFrame(records)
+    email_series = pd.Series(name_email_map)
+    exploded["email"] = exploded["learner_name"].map(email_series)
+    exploded = exploded.dropna(subset=["email"])
+    exploded["participation_date"] = pd.to_datetime(exploded["Date"], format="%d-%b-%Y")
 
-    # Parse date
-    fact_participation["participation_date"] = pd.to_datetime(
-        fact_participation["participation_date"],
-        format="%d-%b-%Y"
-    )
+    result = pd.DataFrame({
+        "participation_id": np.arange(1, len(exploded) + 1),
+        "email": exploded["email"].values,
+        "learner_name": exploded["learner_name"].values,
+        "participation_date": exploded["participation_date"].values,
+        "participated": np.int8(1)
+    })
 
-    # Create surrogate key
-    fact_participation["participation_id"] = (
-        fact_participation["email"] + "_" +
-        fact_participation["participation_date"].dt.strftime("%Y%m%d")
-    )
-
-    # Reorder columns
-    fact_participation = fact_participation[[
-        "participation_id",
-        "email",
-        "learner_name",
-        "participation_date",
-        "participated"
-    ]]
-
-    logger.info(f"Created fact_participation with {len(fact_participation)} records")
-    return fact_participation
+    logger.info(f"Created fact_participation with {len(result)} records")
+    return result
 
 
 def create_dim_learner(status_df, attendance_df):
     """Create learner dimension table."""
     logger.info("Creating dim_learner")
 
-    # Start with status data
-    dim_learner = status_df.copy()
-    dim_learner["email"] = dim_learner["email"].apply(normalize_email)
+    result = status_df.copy()
+    result["email"] = result["email"].str.lower().str.strip()
 
-    # Get name mapping from attendance
-    name_map = attendance_df.groupby("email")["learner_name"].first().to_dict()
-    dim_learner["learner_name"] = dim_learner["email"].map(name_map)
+    name_lookup = attendance_df[["email", "learner_name"]].drop_duplicates(subset=["email"])
+    name_map = name_lookup.set_index("email")["learner_name"]
+    result["learner_name"] = result["email"].map(name_map)
 
-    # Create binary flags
-    dim_learner["is_graduated"] = (dim_learner["Graduation Status"] == "Graduate").astype(int)
-    dim_learner["is_certified"] = (dim_learner["Certification Status"] == "Certified").astype(int)
+    result["is_graduated"] = (result["Graduation Status"] == "Graduate").astype(np.int8)
+    result["is_certified"] = (result["Certification Status"] == "Certified").astype(np.int8)
+    result["learner_id"] = np.arange(1, len(result) + 1)
 
-    # Create surrogate key
-    dim_learner["learner_id"] = range(1, len(dim_learner) + 1)
+    result = result.rename(columns={
+        "Graduation Status": "graduation_status",
+        "Certification Status": "certification_status"
+    })
 
-    # Rename and select columns
-    dim_learner = dim_learner[[
-        "learner_id",
-        "email",
-        "learner_name",
-        "Graduation Status",
-        "Certification Status",
-        "is_graduated",
-        "is_certified"
+    result = result[[
+        "learner_id", "email", "learner_name", "graduation_status",
+        "certification_status", "is_graduated", "is_certified"
     ]]
 
-    dim_learner.columns = [
-        "learner_id",
-        "email",
-        "learner_name",
-        "graduation_status",
-        "certification_status",
-        "is_graduated",
-        "is_certified"
-    ]
-
-    logger.info(f"Created dim_learner with {len(dim_learner)} records")
-    return dim_learner
+    logger.info(f"Created dim_learner with {len(result)} records")
+    return result
 
 
-def create_dim_date():
-    """Create date dimension table."""
-    logger.info("Creating dim_date")
+def create_dim_date(fact_attendance, fact_participation):
+    """Create date dimension from actual data dates."""
+    logger.info("Creating dim_date from actual data")
 
-    date_range = pd.date_range(start=PROGRAM_START_DATE, end=PROGRAM_END_DATE, freq="D")
+    # Get all unique dates from fact tables
+    attendance_dates = pd.to_datetime(fact_attendance["attendance_date"])
+    participation_dates = pd.to_datetime(fact_participation["participation_date"])
+
+    all_dates = pd.concat([attendance_dates, participation_dates]).drop_duplicates().sort_values()
+
+    # Create continuous date range from min to max
+    date_range = pd.date_range(start=all_dates.min(), end=all_dates.max(), freq="D")
 
     dim_date = pd.DataFrame({"date": date_range})
-    dim_date["date_key"] = dim_date["date"].dt.strftime("%Y%m%d").astype(int)
+    dim_date["date_key"] = (
+        dim_date["date"].dt.year * 10000 +
+        dim_date["date"].dt.month * 100 +
+        dim_date["date"].dt.day
+    )
     dim_date["year"] = dim_date["date"].dt.year
     dim_date["month"] = dim_date["date"].dt.month
     dim_date["month_name"] = dim_date["date"].dt.month_name()
     dim_date["day"] = dim_date["date"].dt.day
     dim_date["day_name"] = dim_date["date"].dt.day_name()
     dim_date["day_of_week"] = dim_date["date"].dt.dayofweek
-    dim_date["week_of_year"] = dim_date["date"].dt.isocalendar().week
-    dim_date["is_weekend"] = dim_date["day_of_week"].isin([5, 6]).astype(int)
+    dim_date["week_of_year"] = dim_date["date"].dt.isocalendar().week.astype(int)
+    dim_date["is_weekend"] = dim_date["day_of_week"].isin([5, 6]).astype(np.int8)
 
-    # Reorder
     dim_date = dim_date[[
-        "date_key",
-        "date",
-        "year",
-        "month",
-        "month_name",
-        "day",
-        "day_name",
-        "day_of_week",
-        "week_of_year",
-        "is_weekend"
+        "date_key", "date", "year", "month", "month_name",
+        "day", "day_name", "day_of_week", "week_of_year", "is_weekend"
     ]]
 
-    logger.info(f"Created dim_date with {len(dim_date)} records")
+    logger.info(f"Created dim_date with {len(dim_date)} records (from {all_dates.min().date()} to {all_dates.max().date()})")
     return dim_date
 
 
-def create_dim_week():
-    """Create week dimension table."""
-    logger.info("Creating dim_week")
+def create_dim_week(fact_attendance):
+    """Create week dimension from actual attendance data."""
+    logger.info("Creating dim_week from actual data")
 
-    weeks = []
-    start = pd.to_datetime(PROGRAM_START_DATE)
+    # Get unique weeks and their date ranges from actual data
+    attendance = fact_attendance.copy()
+    attendance["attendance_date"] = pd.to_datetime(attendance["attendance_date"])
 
-    for week_num in range(1, 11):
-        week_start = start + pd.Timedelta(days=(week_num - 1) * 7)
-        week_end = week_start + pd.Timedelta(days=4)
+    week_stats = attendance.groupby("week_number").agg(
+        week_start_date=("attendance_date", "min"),
+        week_end_date=("attendance_date", "max")
+    ).reset_index()
 
-        weeks.append({
-            "week_number": week_num,
-            "week_start_date": week_start,
-            "week_end_date": week_end,
-            "week_label": f"Week {week_num}"
-        })
+    week_stats["week_label"] = "Week " + week_stats["week_number"].astype(str)
 
-    dim_week = pd.DataFrame(weeks)
+    dim_week = week_stats[["week_number", "week_start_date", "week_end_date", "week_label"]]
 
     logger.info(f"Created dim_week with {len(dim_week)} records")
     return dim_week
@@ -273,9 +189,6 @@ def create_dim_week():
 
 def create_name_email_mapping(attendance_df):
     """Create mapping from learner names to emails."""
-    mapping = dict(zip(
-        attendance_df["learner_name"].apply(normalize_name),
-        attendance_df["email"]
-    ))
+    mapping = attendance_df.drop_duplicates(subset=["learner_name"]).set_index("learner_name")["email"].to_dict()
     logger.info(f"Created name-to-email mapping with {len(mapping)} entries")
     return mapping
