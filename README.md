@@ -4,7 +4,7 @@ This folder contains M code files (`.pq`) that can be used in Power BI's Power Q
 
 ## Data Structure
 
-The queries expect this folder structure:
+The queries in power query expect this folder structure:
 ```
 data/
 ├── AWSCloud Training/
@@ -42,53 +42,6 @@ data/
 | `dim_date.pq` | Generates shared date dimension with calendar attributes | Requires `fact_attendance`, `fact_participation` |
 | `dim_week.pq` | Creates shared week dimension (unique week_number for 1:* relationships) | Requires `fact_attendance` |
 
-## Loading Order (Important!)
-
-Due to dependencies between queries, load them in this order:
-
-1. **fact_attendance** - Load first (no dependencies)
-2. **fact_assessment** - Load second (no dependencies)
-3. **fact_participation** - Load third (needs fact_attendance)
-4. **dim_learner** - Load fourth (needs fact_attendance)
-5. **dim_date** - Load fifth (needs fact_attendance, fact_participation)
-6. **dim_week** - Load last (needs fact_attendance)
-
-## How to Use in Power BI
-
-### Method 1: Copy-Paste into Advanced Editor
-
-1. Open Power BI Desktop
-2. Go to **Home** → **Transform data** (Power Query Editor)
-3. Click **New Source** → **Blank Query**
-4. Right-click the new query → **Advanced Editor**
-5. Delete all existing code
-6. Copy the entire content from the `.pq` file
-7. Paste into the Advanced Editor
-8. Click **Done**
-9. Rename the query to match the filename (e.g., `fact_attendance`)
-
-### Method 2: Create Query from File
-
-1. Open Power BI Desktop
-2. Go to **Home** → **Transform data**
-3. Click **New Source** → **More...** → **Other** → **Blank Query**
-4. In the formula bar, type:
-   ```
-   = Text.FromBinary(File.Contents("C:\path\to\powerquery\fact_attendance.pq"))
-   ```
-5. This loads the M code as text - you'll need to copy it to a new query's Advanced Editor
-
-## Configuration Required
-
-**Update File Paths**: Before using each query, update the file paths to match your local folder structure:
-
-```m
-// Change this line in each query:
-Folder.Files("C:\Users\DanielAgudeyDoe\Desktop\Lib\Course Projects\DEM08-PowerBI\data")
-
-// To your actual path:
-Folder.Files("C:\YourPath\DEM08-PowerBI\data")
-```
 
 ## Key Features (Multi-Cohort Support)
 
@@ -229,18 +182,3 @@ Folder.Files("C:\YourPath\DEM08-PowerBI\data")
 | week_start_date | Date | First day of week (min across all tracks) |
 | week_end_date | Date | Last day of week (max across all tracks) |
 | week_label | Text | "Week 1", "Week 2", etc. |
-
-**Note:** dim_week has NO track column to ensure week_number is unique for 1:* relationships with fact tables.
-
-## Troubleshooting
-
-### "Query references another query that doesn't exist"
-- Make sure to load queries in the correct order (dependencies first)
-- Verify query names match exactly: `fact_attendance`, `fact_participation`, etc.
-
-### "File not found" error
-- Update the file paths in the M code to match your local folder structure
-
-### Date parsing errors
-- Ensure your date format matches the expected format (dd-MMM-yyyy for dates like "05-Aug-2024")
-- Check regional settings if dates are not parsing correctly
