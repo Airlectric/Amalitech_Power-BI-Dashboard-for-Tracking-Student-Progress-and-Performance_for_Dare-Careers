@@ -1,184 +1,88 @@
-# Power Query M Code for Data Cleaning & Transformation (Multi-Cohort)
+# Data Careers Power BI Project
 
-This folder contains M code files (`.pq`) that can be used in Power BI's Power Query Advanced Editor to perform data cleaning and transformation. These queries handle **multiple cohorts/tracks** (AWSCloud and PowerBI Training) and combine them into unified fact and dimension tables.
+## Overview
+This project analyzes learner engagement, assessment, and progression data for a Data Careers training program using Power BI. The process involves cleaning, combining, and modeling multiple datasets to enable insightful reporting and analytics.
 
-## Data Structure
+---
 
-The queries in power query expect this folder structure:
-```
-data/
-├── AWSCloud Training/
-│   ├── Labs & Quizes/
-│   │   └── labs_and_quizzes.xlsx
-│   ├── Participation/
-│   │   └── participation.xlsx
-│   ├── Status of Learners/
-│   │   └── participant_status.xlsx
-│   └── Zoom Attendance/
-│       ├── Week 1/
-│       ├── Week 2/
-│       └── ...
-└── PowerBI Training/
-    ├── Labs & Quizes/
-    │   └── Labs & Quizes.xlsx
-    ├── Participation/
-    │   └── Participation records.xlsx
-    ├── Status of Learners/
-    │   └── Status of Participanat.xlsx
-    └── Zoom Attendance/
-        ├── Week 1/
-        ├── Week 2/
-        └── ...
-```
+## Data Preparation & Cleaning
 
-## Files Overview
+### 1. **Raw Data Sources**
+- **Zoom Attendance**: Multiple CSV files (by week and date) containing attendance logs.
+- **Labs & Quizzes**: Excel file with separate sheets for lab and quiz scores.
+- **Participation**: Excel file with daily participation records.
+- **Status of Learners**: Excel file with learner status (graduation, certification, etc).
 
-| File | Description | Dependencies |
-|------|-------------|--------------|
-| `fact_attendance.pq` | Combines Zoom attendance from ALL cohorts, handles both duration formats | None (load first) |
-| `fact_assessment.pq` | Unpivots Labs/Quizzes from ALL cohorts into normalized records | None |
-| `fact_participation.pq` | Explodes participant names from ALL cohorts | Requires `fact_attendance` |
-| `dim_learner.pq` | Creates learner dimension from ALL cohorts with derived fields | Requires `fact_attendance` |
-| `dim_date.pq` | Generates shared date dimension with calendar attributes | Requires `fact_attendance`, `fact_participation` |
-| `dim_week.pq` | Creates shared week dimension (unique week_number for 1:* relationships) | Requires `fact_attendance` |
+### 2. **Cleaning & Transformation Steps**
+- **Attendance Data**:
+  - All Zoom CSVs are loaded and combined into a single table.
+  - Duration fields are parsed and converted to minutes/hours.
+  - Attendance is flagged based on a minimum duration threshold (e.g., 30 minutes).
+  - Dates and week numbers are extracted from filenames and folder paths.
+  - Each record is assigned a unique attendance ID.
 
+- **Assessment Data**:
+  - Labs and quizzes are loaded from their respective Excel sheets.
+  - Data is reshaped (melted) to create a unified assessment table with week, type (Lab/Quiz), and score.
+  - Emails are standardized (lowercase, trimmed).
+  - Each record is assigned a unique assessment ID.
 
-## Key Features (Multi-Cohort Support)
+- **Participation Data**:
+  - Participation records are split and exploded so each learner/date is a separate row.
+  - Learner names are mapped to emails using attendance data.
+  - Dates are standardized and each record is assigned a unique participation ID.
 
-### Automatic Track Detection
-- Extracts track/cohort name from folder path (e.g., "AWSCloud", "PowerBI")
-- All tables include a `track` column for filtering and analysis
+- **Status Data**:
+  - Learner status is loaded and emails are standardized.
+  - Learner names and enrollment dates are derived from attendance data.
+  - Cohort and track fields are created.
+  - Graduation and certification flags are set, and a current status is derived.
 
-### Flexible Duration Parsing
-- **AWSCloud format**: Plain minutes (`66`)
-- **PowerBI format**: H:MM:SS (`1:46:00`)
-- Automatically detects and parses both formats
+### 3. **Dimension & Fact Table Creation**
+- **Fact Tables**:
+  - `fact_attendance`: Cleaned attendance records.
+  - `fact_assessment`: Unified labs/quizzes scores.
+  - `fact_participation`: Cleaned participation records.
+- **Dimension Tables**:
+  - `dim_learner`: Learner profile and status.
+  - `dim_date`: Calendar table covering all relevant dates.
+  - `dim_week`: Week metadata (start/end dates, labels).
 
-### Dynamic File Discovery
-- Uses `Folder.Files()` to recursively find all relevant files
-- Handles different filenames across cohorts automatically
+---
 
-## Transformation Steps by Query
+## Power BI Data Modeling
 
-### fact_attendance
-- Loads all CSVs from `Zoom Attendance` folders in BOTH cohorts
-- Extracts **track name** from parent folder
-- Extracts week number from folder path (`Week 1`, `Week 2`, etc.)
-- Extracts attendance date from filename (`05-Aug-2024.csv`)
-- **Handles both duration formats** (plain minutes AND H:MM:SS)
-- Calculates `duration_hours` and `is_attended` flag (threshold: 30 min)
-- Adds surrogate key `attendance_id`
+1. **Import Cleaned Data**
+   - The cleaned CSVs (from the ETL process) are imported into Power BI as tables.
 
-### fact_assessment
-- Finds all Labs/Quizzes Excel files in BOTH cohorts
-- Extracts **track name** from folder path
-- Loads Labs and Quizzes sheets from each file
-- Unpivots week columns (Week 1-10) to rows
-- Adds `assessment_type` column (Lab/Quiz)
-- Extracts numeric week number
-- Adds surrogate key `assessment_id`
+2. **Relationships**
+   - Relationships are created between fact and dimension tables:
+     - `fact_attendance.email` → `dim_learner.email`
+     - `fact_assessment.email` → `dim_learner.email`
+     - `fact_participation.email` → `dim_learner.email`
+     - Date fields in facts link to `dim_date.date`
+     - Week numbers in facts link to `dim_week.week_number`
 
-### fact_participation
-- Finds all Participation Excel files in BOTH cohorts
-- Extracts **track name** from folder path
-- Splits comma-separated participant names into individual rows
-- Parses date from `dd-MMM-yyyy` format
-- Merges with fact_attendance to get email addresses (matching on name AND track)
-- Adds `participated` flag and surrogate key
+3. **Data Types & Formatting**
+   - Ensure all date, numeric, and categorical fields are correctly typed.
+   - Hide surrogate keys and technical columns from report view.
 
-### dim_learner
-- Finds all Status Excel files in BOTH cohorts
-- Extracts **track name** from folder path
-- Merges with fact_attendance for names and enrollment dates (per track)
-- Derives `cohort` from enrollment month-year
-- Creates binary flags: `is_graduated`, `is_certified`
-- Derives `current_status` (Certified Graduate/Graduate/In Progress)
-- Adds surrogate key `learner_id`
+4. **Calculated Columns & Measures**
+   - Create DAX measures for attendance rates, average scores, participation rates, etc.
+   - Add calculated columns for cohort analysis, status breakdowns, and time intelligence as needed.
 
-### dim_date
-- Extracts all dates from fact_attendance and fact_participation (all cohorts)
-- Generates continuous date range from min to max
-- Adds calendar attributes: year, month, day, day_name, etc.
-- Creates `date_key` in YYYYMMDD format
-- Adds `is_weekend` flag
-- **Shared across all tracks** (dates are not track-specific)
+5. **Star Schema**
+   - The model follows a star schema: fact tables at the center, dimension tables as lookup/reference.
 
-### dim_week
-- Groups fact_attendance by week_number ONLY (across all tracks)
-- Calculates week start and end dates **across all tracks combined**
-- Creates `week_label` (Week 1, Week 2, etc.)
-- **Shared across all tracks** to ensure unique week_number for 1:* relationships
+6. **Report Building**
+   - Use the model to build dashboards and reports for tracking learner engagement, assessment performance, and progression.
 
-## Expected Schema
+---
 
-### fact_attendance
-| Column | Type | Description |
-|--------|------|-------------|
-| attendance_id | Int64 | Surrogate key |
-| email | Text | Learner email (lowercase) |
-| learner_name | Text | Learner full name |
-| attendance_date | Date | Date of attendance |
-| week_number | Int64 | Week number (1-10) |
-| **track** | **Text** | **Track/cohort name (AWSCloud, PowerBI)** |
-| join_time | Text | Join time |
-| leave_time | Text | Leave time |
-| duration_minutes | Number | Duration in minutes |
-| duration_hours | Number | Duration in hours |
-| is_attended | Int64 | 1 if attended (>30 min), 0 otherwise |
+## Notes
+All data cleaning, transformation, and output steps were performed prior to import into Power BI.
+Power BI is used only for modeling, relationships, DAX, and visualization—no Power Query M code is included here.
 
-### fact_assessment
-| Column | Type | Description |
-|--------|------|-------------|
-| assessment_id | Int64 | Surrogate key |
-| email | Text | Learner email (lowercase) |
-| week_number | Int64 | Week number (1-10) |
-| **track** | **Text** | **Track/cohort name** |
-| assessment_type | Text | "Lab" or "Quiz" |
-| score | Number | Assessment score |
+---
 
-### fact_participation
-| Column | Type | Description |
-|--------|------|-------------|
-| participation_id | Int64 | Surrogate key |
-| email | Text | Learner email |
-| learner_name | Text | Learner full name |
-| **track** | **Text** | **Track/cohort name** |
-| participation_date | Date | Date of participation |
-| participated | Int64 | Always 1 |
-
-### dim_learner
-| Column | Type | Description |
-|--------|------|-------------|
-| learner_id | Int64 | Surrogate key |
-| email | Text | Learner email (lowercase) |
-| learner_name | Text | Learner full name |
-| cohort | Text | Enrollment month-year (e.g., "Aug-2024") |
-| **track** | **Text** | **Track/cohort name (AWSCloud, PowerBI)** |
-| enrollment_date | Date | First attendance date |
-| graduation_status | Text | "Graduate" or "Non Graduate" |
-| certification_status | Text | "Certified" or "Not Certified" |
-| current_status | Text | Derived status |
-| is_graduated | Int64 | Binary flag |
-| is_certified | Int64 | Binary flag |
-
-### dim_date
-| Column | Type | Description |
-|--------|------|-------------|
-| date_key | Int64 | YYYYMMDD format key |
-| date | Date | Actual date |
-| year | Int64 | Year |
-| month | Int64 | Month number |
-| month_name | Text | Month name |
-| day | Int64 | Day of month |
-| day_name | Text | Day name |
-| day_of_week | Int64 | 0=Monday, 6=Sunday |
-| week_of_year | Int64 | ISO week number |
-| is_weekend | Int64 | 1 if Saturday/Sunday |
-
-### dim_week
-| Column | Type | Description |
-|--------|------|-------------|
-| week_number | Int64 | Week number (1-10) - **Primary Key (unique)** |
-| week_start_date | Date | First day of week (min across all tracks) |
-| week_end_date | Date | Last day of week (max across all tracks) |
-| week_label | Text | "Week 1", "Week 2", etc. |
+For further details, see the Power BI file in this repository.
