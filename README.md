@@ -8,18 +8,42 @@ This project analyzes learner engagement, assessment, and progression data for a
 ## Data Preparation & Cleaning
 
 ### 1. **Raw Data Sources**
-- **Zoom Attendance**: Multiple CSV files (by week and date) containing attendance logs.
-- **Labs & Quizzes**: Excel file with separate sheets for lab and quiz scores.
-- **Participation**: Excel file with daily participation records.
-- **Status of Learners**: Excel file with learner status (graduation, certification, etc).
 
 ### 2. **Cleaning & Transformation Steps**
+### 2. **Cleaning & Transformation Steps (Power Query in Power BI)**
+All data cleaning and transformation is performed within Power BI using Power Query, supporting both AWSCloud and PowerBI Training cohorts:
+
 - **Attendance Data**:
-  - All Zoom CSVs are loaded and combined into a single table.
-  - Duration fields are parsed and converted to minutes/hours.
-  - Attendance is flagged based on a minimum duration threshold (e.g., 30 minutes).
-  - Dates and week numbers are extracted from filenames and folder paths.
-  - Each record is assigned a unique attendance ID.
+  - All Zoom CSVs from both cohorts are loaded and combined.
+  - Duration fields are parsed and attendance is flagged based on a minimum threshold.
+  - Track/cohort and week numbers are extracted from folder paths.
+  - Dates are standardized and each record is assigned a unique attendance ID.
+
+- **Assessment Data**:
+  - Labs and quizzes from both cohorts are loaded from Excel files.
+  - Data is reshaped to create a unified assessment table with week, type (Lab/Quiz), and score.
+  - Track info is included and emails are standardized.
+  - Each record is assigned a unique assessment ID.
+
+- **Participation Data**:
+  - Participation records from both cohorts are loaded and split so each learner/date is a separate row.
+  - Learner names are mapped to emails using attendance data.
+  - Dates are standardized and each record is assigned a unique participation ID.
+
+- **Status Data**:
+  - Status files from both cohorts are merged.
+  - Learner names, enrollment dates, cohort, and track are derived.
+  - Graduation and certification flags are set, and a current status is derived.
+
+### 3. **Dimension & Fact Table Creation (Power Query)**
+- **Fact Tables**:
+  - `fact_attendance`: Unified attendance records across cohorts.
+  - `fact_assessment`: Normalized labs/quizzes scores across cohorts.
+  - `fact_participation`: Cleaned participation records across cohorts.
+- **Dimension Tables**:
+  - `dim_learner`: Learner profile and status across cohorts.
+  - `dim_date`: Calendar table covering all relevant dates.
+  - `dim_week`: Week metadata (start/end dates, labels).
 
 - **Assessment Data**:
   - Labs and quizzes are loaded from their respective Excel sheets.
